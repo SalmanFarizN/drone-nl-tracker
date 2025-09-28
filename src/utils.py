@@ -24,6 +24,8 @@ def extract_track_info(result) -> pd.DataFrame:
             trackin_data.append(data)
 
     df = pd.DataFrame(trackin_data)
+    # Add mask column to current_df NaN
+    df["mask"] = np.nan
     return df
 
 
@@ -35,10 +37,6 @@ def update_all_tracks(all_tracks_df, current_df):
     """
     if current_df.empty:
         return all_tracks_df
-
-    # Add mask column to current_df NaN
-    current_df = current_df.copy()
-    current_df["mask"] = np.nan
 
     # Get existing track_ids
     existing_track_ids = set(all_tracks_df["track_id"].dropna())
@@ -87,8 +85,37 @@ def update_all_tracks(all_tracks_df, current_df):
     return all_tracks_df
 
 
+def encode_crop_for_qwen(orig_img, bbox, min_side=28, margin=8):
+    # bbox: [x1, y1, x2, y2]
+    x1, y1, x2, y2 = map(int, bbox)
+    # expand bbox a bit for context
+    x1 = max(0, x1 - margin)
+    y1 = max(0, y1 - margin)
+    x2 = min(orig_img.shape[1], x2 + margin)
+    y2 = min(orig_img.shape[0], y2 + margin)
+    if x2 <= x1 or y2 <= y1:
+        return None
+
+    crop = orig_img[y1:y2, x1:x2]
+    h, w = crop.shape[:2]
+    if h == 0 or w == 0:
+        return None
+
+    # Ensure shortest side >= min_side
+    if min(h, w) < min_side:
+        scale = float(min_side) / max(1, min(h, w))
+        new_w = max(int(round(w * scale)), min_side)
+        new_h = max(int(round(h * scale)), min_side)
+        crop = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
+
+    ok, enc = cv2.imencode(".jpg", crop)
+    if not ok:
+        return None
+    return enc.tobytes()
+
+
 # Function to loop through all uncategorized tracks and ask the LLM to categorize them
-def categorize_tracks_with_llm(all_tracks_df, result):
+def categorize_tracks_with_llm(all_tracks_df, result, query):
     non_categorized_tracks = all_tracks_df[all_tracks_df["mask"].isna()]
 
     if non_categorized_tracks.empty:
@@ -101,27 +128,35 @@ def categorize_tracks_with_llm(all_tracks_df, result):
         x1, y1, x2, y2 = bbox
 
         orig_img = result[0].orig_img
-        img = orig_img[y1:y2, x1:x2]
+
+        # For gemma
+        # img = orig_img[y1:y2, x1:x2]
 
         # Convert the NumPy array (BGR not the RGB) to bytes
-        _, img_encoded = cv2.imencode(".jpg", img)  # Encode as JPEG
-        img_bytes = img_encoded.tobytes()  # Convert to bytes
+        # _, img_encoded = cv2.imencode(".jpg", img)  # Encode as JPEG
+        # img_bytes = img_encoded.tobytes()  # Convert to bytes
+
+        # Safe encode for qwen2.5-vl (guarantee min side >= 28)
+        img_bytes = encode_crop_for_qwen(orig_img, bbox, min_side=28, margin=8)
+        if img_bytes is None:
+            print(f"Track ID {track_id}: crop too small/invalid, skipped.")
+            continue
 
         # Define the system prompt
         system_prompt = {
             "role": "system",
-            "content": "You are an intelligent traffic analyst. You will analyze cropped drone images of vehicles from an overhead birds-eye view. Does the image match the description provided by the user? Please provide an answer as an int either 0 (if FALSE) or 1 (TRUE) for the image.",
+            "content": "You are an expert in inferring characteristics (color, condition, type etc.) of vehicles from cropped, low-resolution drone images of vehicles from an overhead birds-eye view. Does the image match the description provided by the user? Please provide an answer as an int either 0 (if FALSE) or 1 (TRUE) for the image. Only respond with 1, if the image clearly matches the description. For colour, only asnwer with 1 if the majority of the car is clearly of that colour. Answer with 1 only if you are certain, otherwise answer with 0.",
         }
 
         # User query
         user_query = {
             "role": "user",
-            "content": "I want to track all blue cars",
+            "content": query,
             "images": [img_bytes],
         }
 
         # Send the prompts to the model
-        res = ollama.chat(model="gemma3:4b", messages=[system_prompt, user_query])
+        res = ollama.chat(model="qwen2.5vl:7b", messages=[system_prompt, user_query])
 
         response_content = res["message"]["content"].strip()
         print(f"Track ID {track_id} - LLM Response: {response_content}")
