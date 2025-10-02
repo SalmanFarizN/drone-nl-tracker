@@ -9,7 +9,7 @@ import threading
 
 def main():
 
-    video_path = "data/sample_drone_low_alt.mp4"
+    video_path = "data/sample_drone_low_alt_long.mp4"
     model = YOLO("models/yolov8n-VisDrone.pt")
     cap = cv2.VideoCapture(video_path)
 
@@ -36,7 +36,7 @@ def main():
 
             user_input = st.text_input(
                 "What would you like to track?",
-                placeholder="e.g., I want to track all blue cars",
+                placeholder="e.g.,Track all blue cars",
                 key="chat_input",
                 help="Enter a description to filter objects using AI. Leave empty to show all objects.",
             )
@@ -46,7 +46,7 @@ def main():
             with col1:
                 apply_clicked = st.button("🔍 Apply Query", key="apply_btn")
             with col2:
-                clear_clicked = st.button("❌ Clear", key="clear_btn")
+                clear_clicked = st.button("❌ Stop", key="clear_btn")
 
             # Determine the active query
             user_query = ""
@@ -72,7 +72,7 @@ def main():
             st.subheader("Annotated Video")
             annotated_window = st.empty()
 
-        if st.button("▶️ Start Video"):
+        if st.button("▶️ Start Detection"):
             while cap.isOpened():
                 success, frame = cap.read()
                 if not success:
