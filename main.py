@@ -1,31 +1,15 @@
-from src.utils import *
+from src.file_io import create_csv_file
+from src.data_process import (
+    update_all_tracks,
+    extract_track_info,
+    filter_results_by_mask,
+)
+from src.vlm_analysis import categorize_tracks_with_llm
 import streamlit as st
 from ultralytics import YOLO
 import pandas as pd
 import cv2
 import time
-import threading
-from datetime import datetime
-
-
-def create_csv_file():
-    """Create a new CSV file with timestamp"""
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    csv_filename = f"data/logs/tracking_logs_{timestamp}.csv"
-
-    # Initialize empty CSV file
-    all_tracks_df = pd.DataFrame(
-        {
-            "track_id": pd.Series([], dtype="Int64"),
-            "class_id": pd.Series([], dtype="int"),
-            "class_name": pd.Series([], dtype="string"),
-            "confidence": pd.Series([], dtype="float"),
-            "bbox": pd.Series([], dtype="object"),
-            "mask": pd.Series([], dtype="Int64"),
-        }
-    )
-    all_tracks_df.to_csv(csv_filename, index=False)
-    return csv_filename
 
 
 def main():
