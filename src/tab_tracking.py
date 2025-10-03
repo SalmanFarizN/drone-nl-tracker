@@ -12,6 +12,54 @@ import cv2
 
 
 def tab_tracking(model, video_path) -> None:
+    """Display the main tracking interface with video processing and AI query functionality.
+
+    Creates a comprehensive Streamlit interface for drone video tracking that includes:
+    - AI-powered query interface for filtering specific objects
+    - Real-time video processing with object detection and tracking
+    - Side-by-side display of raw and annotated video feeds
+    - CSV logging of tracking data for analysis
+
+    The function processes video frames using YOLO object detection and tracking,
+    applies LLM-based filtering based on user queries, and maintains persistent
+    tracking data across the session.
+
+    Args:
+        model: Pre-loaded YOLO model instance for object detection and tracking.
+        video_path (str): File path to the video file to be processed.
+
+    Returns:
+        None: This function renders Streamlit UI components directly.
+
+    UI Components:
+        - AI Query Interface: Text input and control buttons for filtering
+        - Video Display: Raw video feed and annotated results side-by-side
+        - Control Buttons:
+          * Apply Query: Activates LLM filtering for specified objects
+          * Stop: Halts video processing and clears query
+          * New Log File: Creates fresh CSV file for new experiment
+          * Start Detection: Begins video processing loop
+
+    Workflow:
+        1. User enters natural language query (e.g., "blue cars")
+        2. Clicks Start Detection to begin video processing
+        3. Each frame is processed with YOLO tracking
+        4. LLM analyzes cropped objects against user query
+        5. Results are filtered and displayed in annotated video
+        6. Tracking data is continuously saved to CSV file
+
+    Note:
+        - Requires st.session_state.csv_filename to be initialized
+        - Video processing runs in blocking loop until completion
+        - Uses OpenCV for video handling and frame processing
+        - Supports BotSORT tracker for object persistence
+
+    Dependencies:
+        - YOLO model for object detection/tracking
+        - LLM model (Qwen2.5-VL) for object categorization
+        - OpenCV for video processing
+        - Streamlit for UI components
+    """
     # Chat interface box at the top
     with st.container():
         st.subheader("💬 AI Tracking Query")
