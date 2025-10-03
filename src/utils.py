@@ -5,8 +5,25 @@ import ollama
 import copy
 
 
-# Function to extract track IDs and bboxes of all detected objects
 def extract_track_info(result) -> pd.DataFrame:
+    """Extract tracking information from YOLO detection results.
+
+    Processes YOLO detection results to extract class IDs, names, confidence scores,
+    track IDs, and bounding boxes for all detected objects. Adds a mask column
+    initialized with NaN values for later filtering.
+
+    Args:
+        result: YOLO detection result object containing boxes and metadata.
+
+    Returns:
+        pd.DataFrame: DataFrame with columns:
+            - class_id (int): Object class identifier
+            - class_name (str): Human-readable class name
+            - confidence (float): Detection confidence score
+            - track_id (int or None): Unique tracking identifier
+            - bbox (list): Bounding box coordinates [x1, y1, x2, y2]
+            - mask (float): Filtering mask, initialized as NaN
+    """
     trackin_data = []
     if result.boxes is not None:
         for box in result.boxes:
@@ -30,10 +47,22 @@ def extract_track_info(result) -> pd.DataFrame:
 
 
 def update_all_tracks(all_tracks_df, current_df):
-    """
-    Update all_tracks_df with current frame data:
-    - Add new track_ids
-    - Update existing track_ids with new information
+    """Update the master tracking DataFrame with current frame detections.
+
+    Merges current frame tracking data with the accumulated tracking history.
+    New track IDs are added as new rows, while existing track IDs have their
+    detection data updated while preserving their mask values.
+
+    Args:
+        all_tracks_df (pd.DataFrame): Master DataFrame containing all historical
+            tracking data with preserved mask values.
+        current_df (pd.DataFrame): Current frame tracking data from extract_track_info().
+
+    Returns:
+        pd.DataFrame: Updated master DataFrame with:
+            - New tracks appended with current frame data
+            - Existing tracks updated with latest detection info
+            - Mask values preserved for existing tracks
     """
     if current_df.empty:
         return all_tracks_df
@@ -52,7 +81,6 @@ def update_all_tracks(all_tracks_df, current_df):
     if new_track_ids:
         new_tracks = current_df[current_df["track_id"].isin(new_track_ids)]
         all_tracks_df = pd.concat([all_tracks_df, new_tracks], ignore_index=True)
-        # print(f"Added {len(new_track_ids)} new tracks: {list(new_track_ids)}")
 
     # Update existing tracks
     if update_track_ids:
@@ -78,14 +106,24 @@ def update_all_tracks(all_tracks_df, current_df):
             # Keep existing mask value
             all_tracks_df.loc[row_idx, "mask"] = existing_mask
 
-        # print(
-        #     f"Updated {len(update_track_ids)} existing tracks: {list(update_track_ids)}"
-        # )
-
     return all_tracks_df
 
 
 def encode_crop_for_qwen(orig_img, bbox, min_side=28, margin=8):
+    """Extract and encode image crop for Qwen vision model processing.
+
+    Crops the original image using the provided bounding box, adds margin for context,
+    ensures minimum dimensions for model compatibility, and encodes as JPEG bytes.
+
+    Args:
+        orig_img (np.ndarray): Original image array in BGR format.
+        bbox (list or np.ndarray): Bounding box coordinates [x1, y1, x2, y2].
+        min_side (int, optional): Minimum pixel size for shortest side. Defaults to 28.
+        margin (int, optional): Pixel margin to add around bounding box. Defaults to 8.
+
+    Returns:
+        bytes or None: JPEG-encoded image bytes, or None if crop is invalid/too small.
+    """
     # bbox: [x1, y1, x2, y2]
     x1, y1, x2, y2 = map(int, bbox)
     # expand bbox a bit for context
@@ -114,8 +152,53 @@ def encode_crop_for_qwen(orig_img, bbox, min_side=28, margin=8):
     return enc.tobytes()
 
 
-# Function to loop through all uncategorized tracks and ask the LLM to categorize them
+def encode_crop_for_gemma(orig_img, bbox):
+    """Extract and encode image crop for Gemma vision model processing.
+
+    Simple cropping function that extracts the bounding box region from the
+    original image and encodes it as JPEG bytes for Gemma model input.
+
+    Args:
+        orig_img (np.ndarray): Original image array in BGR format.
+        bbox (list or np.ndarray): Bounding box coordinates [x1, y1, x2, y2].
+
+    Returns:
+        bytes or None: JPEG-encoded image bytes, or None if crop is invalid.
+    """
+    # bbox: [x1, y1, x2, y2]
+    x1, y1, x2, y2 = map(int, bbox)
+    crop = orig_img[y1:y2, x1:x2]
+    if crop.size == 0:
+        return None
+    ok, enc = cv2.imencode(".jpg", crop)
+    if not ok:
+        return None
+    return enc.tobytes()
+
+
 def categorize_tracks_with_llm(all_tracks_df, result, query):
+    """Categorize uncategorized tracks using LLM vision model analysis.
+
+    Processes all tracks with NaN mask values by sending cropped vehicle images
+    to the Qwen vision model along with a user query. The LLM determines if each
+    vehicle matches the query description and updates the mask accordingly.
+
+    Args:
+        all_tracks_df (pd.DataFrame): Master tracking DataFrame with mask column.
+        result (list): YOLO detection results containing original image data.
+        query (str): User description to match against detected vehicles
+            (e.g., "blue cars", "damaged vehicles").
+
+    Returns:
+        pd.DataFrame: Updated DataFrame with mask values set to:
+            - 1: Vehicle matches the query description
+            - 0: Vehicle does not match the query description
+            - NaN: Unchanged (if processing failed)
+
+    Note:
+        Uses Qwen2.5-VL model via Ollama for image analysis. Requires proper
+        model setup and sufficient image quality for accurate classification.
+    """
     non_categorized_tracks = all_tracks_df[all_tracks_df["mask"].isna()]
 
     if non_categorized_tracks.empty:
@@ -128,13 +211,6 @@ def categorize_tracks_with_llm(all_tracks_df, result, query):
         x1, y1, x2, y2 = bbox
 
         orig_img = result[0].orig_img
-
-        # For gemma
-        # img = orig_img[y1:y2, x1:x2]
-
-        # Convert the NumPy array (BGR not the RGB) to bytes
-        # _, img_encoded = cv2.imencode(".jpg", img)  # Encode as JPEG
-        # img_bytes = img_encoded.tobytes()  # Convert to bytes
 
         # Safe encode for qwen2.5-vl (guarantee min side >= 28)
         img_bytes = encode_crop_for_qwen(orig_img, bbox, min_side=28, margin=8)
@@ -177,6 +253,26 @@ def categorize_tracks_with_llm(all_tracks_df, result, query):
 
 
 def filter_results_by_mask(results, all_tracks_df):
+    """Filter YOLO detection results based on LLM categorization masks.
+
+    Creates a filtered copy of YOLO results containing only detections whose
+    track IDs have mask value of 1 (indicating they match the user query).
+    This enables selective visualization of only relevant objects.
+
+    Args:
+        results (list): Original YOLO detection results from model.track().
+        all_tracks_df (pd.DataFrame): Master tracking DataFrame containing
+            mask values from LLM categorization.
+
+    Returns:
+        YOLO Results object: Deep copy of original results with boxes filtered
+            to include only tracks where mask == 1. Can be used directly with
+            .plot() method for annotated visualization.
+
+    Note:
+        Returns a deep copy to avoid modifying the original YOLO results.
+        If no boxes match the filter criteria, returns results with empty boxes.
+    """
     # Get list of track_ids where mask == 1
     active_ids = set(
         all_tracks_df.loc[all_tracks_df["mask"] == 1, "track_id"]
