@@ -16,12 +16,12 @@ Built with a fine-tuned **YOLOv8n** model on the VisDrone dataset, **BotSORT tra
 ## 🎥 Live Demonstrations
 
 ### Standard Object Detection & Tracking
-![No Query Tracking](assets/no_query.gif)
+<img src="assets/no_query.gif" alt="No Query Tracking" loading="lazy" width="100%">
 
 *Baseline tracking using YOLOv8n fine-tuned on VisDrone dataset with BotSORT and ReID for persistent object tracking across frames.*
 
 ### Natural Language-Guided Tracking
-![Query-Based Tracking](assets/with_query.gif)
+<img src="assets/with_query.gif" alt="Query-Based Tracking" loading="lazy" width="100%">
 
 *Natural language query-based filtering: "Track red cars" - The system uses Qwen2.5-VL to analyze each detected vehicle and filter results based on the text description.*
 
