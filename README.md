@@ -23,7 +23,7 @@ Built with a fine-tuned **YOLOv8n** model on the VisDrone dataset, **BotSORT tra
 ### Natural Language-Guided Tracking
 ![Query-Based Tracking](assets/with_query.gif)
 
-*Natural language query-based filtering: "Track blue cars" - The system uses Qwen2.5-VL to analyze each detected vehicle and filter results based on the text description.*
+*Natural language query-based filtering: "Track red cars" - The system uses Qwen2.5-VL to analyze each detected vehicle and filter results based on the text description.*
 
 ## ✨ Key Features
 
